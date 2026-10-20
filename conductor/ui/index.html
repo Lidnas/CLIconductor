@@ -1,0 +1,60 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>CLI Conductor</title>
+<style>
+body{font-family:system-ui;margin:0;background:#0f1115;color:#e6e6e6}
+header{padding:12px 16px;background:#1a1d24;border-bottom:1px solid #333}
+main{display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:12px}
+.card{background:#1a1d24;border:1px solid #333;border-radius:8px;padding:12px}
+h2{margin:0 0 8px;font-size:14px;text-transform:uppercase;color:#9aa}
+button{background:#2d6cdf;color:#fff;border:none;padding:6px 10px;border-radius:4px;cursor:pointer;margin-right:4px}
+input{background:#0f1115;color:#e6e6e6;border:1px solid #333;padding:6px;border-radius:4px;width:60%}
+pre{white-space:pre-wrap;max-height:200px;overflow:auto;font-size:12px}
+#events{max-height:400px;overflow:auto}
+</style>
+</head>
+<body>
+<header>
+  <strong>CLI Conductor</strong>
+  <input id="obj" placeholder="objective" value="Say hello">
+  <button onclick="createRun()">New Run</button>
+  <button onclick="pause()">Pause</button>
+  <button onclick="resume()">Resume</button>
+  <button onclick="cancel()">Cancel</button>
+</header>
+<main>
+  <div class="card"><h2>Runs / Tasks</h2><div id="runs"></div><div id="tasks"></div></div>
+  <div class="card"><h2>Agents</h2><div id="agents"></div></div>
+  <div class="card"><h2>Messages</h2><div id="msgs"></div></div>
+  <div class="card"><h2>Events</h2><div id="events"></div></div>
+</main>
+<script>
+let runId=null;
+const ws=new WebSocket('ws://127.0.0.1:8000/ws');
+ws.onmessage=e=>{const d=JSON.parse(e.data); log(JSON.stringify(d)); refresh();}
+function log(t){const el=document.getElementById('events');const p=document.createElement('div');p.textContent=t;el.prepend(p);}
+async function createRun(){
+  const obj=document.getElementById('obj').value;
+  const r=await fetch('/api/runs',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({objective:obj,concurrency:2})});
+  const j=await r.json(); runId=j.run_id; log('run '+runId); refresh();
+}
+async function pause(){ if(!runId) return; await fetch('/api/runs/'+runId+'/pause',{method:'POST'});}
+async function resume(){ if(!runId) return; await fetch('/api/runs/'+runId+'/resume',{method:'POST'});}
+async function cancel(){ if(!runId) return; await fetch('/api/runs/'+runId+'/cancel',{method:'POST'});}
+async function refresh(){
+  if(!runId) return;
+  const t=await fetch('/api/runs/'+runId+'/tasks').then(r=>r.json());
+  document.getElementById('tasks').innerHTML=t.map(x=>`<div>${x.task_id}: ${x.state}</div>`).join('');
+  const a=await fetch('/api/runs/'+runId+'/agents').then(r=>r.json());
+  document.getElementById('agents').innerHTML=a.map(x=>`<div>${x.agent_id}: ${x.state} (${x.cli})</div>`).join('');
+  const m=await fetch('/api/runs/'+runId+'/messages').then(r=>r.json());
+  document.getElementById('msgs').innerHTML=m.map(x=>`<div>${x.sender}->${x.recipient} [${x.type}]: ${JSON.stringify(x.payload)}</div>`).join('');
+  const e=await fetch('/api/runs/'+runId+'/events?limit=50').then(r=>r.json());
+  document.getElementById('events').innerHTML=e.map(x=>`<div>${x.type} ${x.agent_id||''} ${x.reason||''}</div>`).join('');
+}
+setInterval(refresh,2000);
+</script>
+</body>
+</html>
